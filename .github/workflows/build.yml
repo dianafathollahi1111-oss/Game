@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -17,16 +19,28 @@ jobs:
       - name: Unpack the game
         run: |
           set -e
-          ZIP=$(ls *.zip | head -n 1)
-          echo "Using $ZIP"
+          echo "Zip files in the repository:"
+          ls -la *.zip || { echo "ERROR: no .zip file in the repository. Upload bonbon-pop-app-v10.zip without unzipping it."; exit 1; }
+          BEST=""; BESTT=0
+          for z in *.zip; do
+            if unzip -tq "$z" >/dev/null 2>&1; then
+              T=$(git log -1 --format=%ct -- "$z" 2>/dev/null || echo 0); T=${T:-0}
+              echo "valid zip: $z (added at $T)"
+              if [ "$T" -ge "$BESTT" ]; then BEST="$z"; BESTT=$T; fi
+            else
+              echo "NOT A VALID ZIP, skipped: $z ($(stat -c %s "$z") bytes)"
+            fi
+          done
+          [ -n "$BEST" ] || { echo "ERROR: none of the zip files can be opened. Delete them and upload bonbon-pop-app-v10.zip again."; exit 1; }
+          echo "Using $BEST"
           mkdir unpacked
-          unzip -q "$ZIP" -d unpacked
+          unzip -q "$BEST" -d unpacked
           CFG=$(find unpacked -name capacitor.config.json | head -n 1)
           if [ -n "$CFG" ]; then
             mv "$(dirname "$CFG")" app
           else
             IDX=$(find unpacked -name index.html -not -path "*/node_modules/*" | head -n 1)
-            [ -n "$IDX" ] || { echo "No index.html found in $ZIP"; exit 1; }
+            [ -n "$IDX" ] || { echo "No index.html found in $BEST"; exit 1; }
             mkdir -p app/www app/assets
             cp -r "$(dirname "$IDX")"/. app/www/
             cp app/www/icons/icon-512.png app/assets/icon-only.png 2>/dev/null || true
